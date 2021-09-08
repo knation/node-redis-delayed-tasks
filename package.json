@@ -1,0 +1,33 @@
+{
+  "name": "redis-delayed-tasks",
+  "version": "1.0.0",
+  "description": "Allows for the future execution of tasks utilizing redis as a datastore.",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/knation/node-redis-delayed-tasks.git"
+  },
+  "keywords": [
+    "delayed",
+    "tasks"
+  ],
+  "author": "Kirk Morales",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/knation/node-redis-delayed-tasks/issues"
+  },
+  "homepage": "https://github.com/knation/node-redis-delayed-tasks#readme",
+  "dependencies": {
+    "bluebird": "^3.7.2",
+    "redis": "^3.1.2",
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "fakeredis": "^2.0.0",
+    "mocha": "^9.1.1",
+    "nyc": "^15.1.0"
+  }
+}
