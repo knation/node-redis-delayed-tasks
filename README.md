@@ -1,4 +1,7 @@
 # redis-delayed-tasks
+
+[![Node.js CI](https://github.com/knation/node-redis-delayed-tasks/actions/workflows/node.js.yml/badge.svg)](https://github.com/knation/node-redis-delayed-tasks/actions/workflows/node.js.yml) [![Coverage Status](https://coveralls.io/repos/github/knation/node-redis-delayed-tasks/badge.svg?branch=main)](https://coveralls.io/github/knation/node-redis-delayed-tasks?branch=main) [![Dependencies](https://david-dm.org/knation/node-redis-delayed-tasks.svg)](https://david-dm.org/knation/node-redis-delayed-tasks)
+
 This node module allows for the simple future execution of tasks utilizing redis as a datastore. It takes away the need to mess with redis or some other message queue and provides a way to do _something_ in the future in a distributed environment.
 
 The task callback is unaware of the context of your codebase. Instead of calling a specific callback function per task, this module calls the same callback function for each task, relying on you to route it to the appropriate place.
