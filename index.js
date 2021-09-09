@@ -92,7 +92,7 @@ class DelayedTasks {
                   // Process tasks
                   tasks
                     .map(t => JSON.parse(t))
-                    .forEach(t => this.callback.call(null, t.data, t.id, t.due));
+                    .forEach(t => this.callback.call(this, t.data, t.id, t.due));
                 }
 
                 resolve(results[0] ?? 0);
