@@ -14,7 +14,6 @@ function isValidTasksObject(dt) {
   assert.ok(dt.redisClient);
   assert.ok(dt.redisKey);
   assert.ok(dt.pollIntervalMs);
-  assert.ok(dt.pollSize);
   assert.equal(dt.pollIntervalId, null);
 }
 
@@ -252,38 +251,6 @@ describe('constructor', function() {
 
     isValidTasksObject(dt);
     assert.equal(dt.pollIntervalMs, 100);
-
-    dt.redisClient.quit();
-  });
-
-  it('uses default `pollSize` if invalid', function() {
-    const dt = new DelayedTasks({
-      id: 'test',
-      redis: {},
-      callback: () => {},
-      options: {
-        pollSize: true
-      }
-    });
-
-    isValidTasksObject(dt);
-    assert.equal(dt.pollSize, 10);
-
-    dt.redisClient.quit();
-  });
-
-  it('allows for a custom `pollSize` value', function() {
-    const dt = new DelayedTasks({
-      id: 'test',
-      redis: {},
-      callback: () => {},
-      options: {
-        pollSize: 20
-      }
-    });
-
-    isValidTasksObject(dt);
-    assert.equal(dt.pollSize, 20);
 
     dt.redisClient.quit();
   });

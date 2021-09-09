@@ -45,13 +45,6 @@ class DelayedTasks {
       this.pollIntervalMs = 1000;
     }
 
-    // Poll size - how many items to pop off redis on each poll (Default: 10)
-    if (typeof settings.options.pollSize === 'number' && settings.options.pollSize > 0) {
-      this.pollSize = settings.options.pollSize;
-    } else {
-      this.pollSize = 10;
-    }
-
     this.pollIntervalId = null;
   }
 
