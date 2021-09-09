@@ -4,7 +4,11 @@ const { v1: uuidv1 } = require('uuid');
 
 class DelayedTasks {
 
-  constructor(settings = {}) {
+  constructor(settings) {
+
+    if (typeof settings !== 'object') {
+      throw new TypeError('No constructor settings specified');
+    }
 
     // Check ID
     if (typeof settings.id === 'string') {
@@ -69,30 +73,55 @@ class DelayedTasks {
   /**
    * Polls redis for tasks.
    */
-  async poll() {
+  poll() {
     const now = new Date().getTime();
 
-    // Pop `this.pollSize` number of tasks from the queue
-    const tasks = await new Promise((resolve, reject) => {
-      this.redisClient.zpopmin(this.redisKey, this.pollSize, (err, tasks) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(tasks.map(t => JSON.parse(t)));
-        }
+    return new Promise((resolve, reject) => {
+      this.redisClient.watch(this.redisKey, (watchError) => {
+        /* istanbul ignore next */
+        if (watchError) return reject(watchError);
+
+        this.redisClient.zrangebyscore(this.redisKey, 0, now, (zrangeErr, tasks) => {
+          /* istanbul ignore next */
+          if (zrangeErr) return reject(zrangeErr);
+
+          if (tasks.length > 0) {
+            this.redisClient
+              .multi()
+              .zremrangebyscore(this.redisKey, 0, now)
+              .exec((execError, results) => {
+                /* istanbul ignore next */
+                if (execError) return reject(execError);
+
+                // Success, either that the update was made, or the key changed
+
+                if (results[0] !== null) {
+                  // Process tasks
+                  tasks
+                    .map(t => JSON.parse(t))
+                    .forEach(t => this.callback.call(null, t.data, t.id, t.delayUntil));
+                }
+
+                resolve(results[0] ?? 0);
+
+                /**
+                 * If results === null, it means that a concurrent client
+                 * changed the key while we were processing it and thus
+                 * the execution of the MULTI command was not performed.
+                 *
+                 * NOTICE: Failing an execution of MULTI is not considered
+                 * an error. So you will have err === null and results === null
+                 */
+              });
+
+            } else {
+              // No changes to make, so discard the transaction
+              this.redisClient.discard();
+              resolve(0);
+            }
+        });
       });
     });
-
-    // Iterate tasks and stop at future tasks
-    for (const task of tasks) {
-      if (task.delayedTime <= now) {
-        // Pass this task to the callback method
-        this.callback.call(null, task.id, task.delayUntil, task.data);
-      } else {
-        // Add this task back into redis
-        this.addToRedis(task.delayUntil, JSON.stringify(task));
-      }
-    }
   }
 
   /**
@@ -101,7 +130,10 @@ class DelayedTasks {
   addToRedis(delayedTime, task) {
     return new Promise((resolve, reject) => {
       this.redisClient.zadd(this.redisKey, delayedTime, task, (err, result) => {
-        err ? reject(err) : resolve(result);
+        /* istanbul ignore next */
+        if (err) return reject(err);
+
+        resolve(result);
       });
     });
   }

@@ -38,12 +38,26 @@ function createTasksObject(callback) {
 }
 
 /**
+ * Clears the queue for the given object.
+ */
+function clearQueue(dt) {
+  return new Promise((resolve, reject) => {
+    dt.redisClient.zremrangebyscore(dt.redisKey, '-inf', 'inf', (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+/**
  * This is pretty much just a wrapper method for `zrangebyscore`, wrapped in
  * a promise.
  */
 function getTasksUntil(dt, end) {
   return new Promise((resolve, reject) => {
-
     dt.redisClient.zrange(dt.redisKey, 0, end, (err, tasks) => {
       if (err) {
         reject(err);
@@ -82,6 +96,22 @@ describe('constructor', function() {
     isValidTasksObject(dt);
 
     dt.redisClient.quit();
+  });
+
+  it('fails when no settings provided', function() {
+    assert.throws(
+      () => {
+        try {
+          const dt = new DelayedTasks();
+        } catch (e) {
+          throw e;
+        }
+      },
+      {
+        name: 'TypeError',
+        message: 'No constructor settings specified'
+      }
+    );
   });
 
   it('fails when redis object is missing', function() {
@@ -418,23 +448,267 @@ describe('start/stop', function() {
 
 });
 
-xdescribe('poll', function() {
+describe('poll', function() {
 
   it('works with no delayed tasks', async function() {
     const cb = sinon.stub();
     const dt = createTasksObject(cb);
 
     // For good measure, make sure we're not starting with any tasks
-    let tasks = await getTasksUntil(dt, new Date().getTime() + 10000);
+    await clearQueue(dt);
 
-    await dt.poll();
+    const tasksRemoved = await dt.poll();
 
     // Ensure that we didn't process any tasks
+    assert.equal(tasksRemoved, 0);
     assert.equal(cb.callCount, 0);
 
-    // Ensure that no tasks were added back
-      tasks = await getTasksUntil(dt, new Date().getTime() + 10000);
+    // Ensure that all tasks were removed
+    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
     assert.equal(tasks.length, 0);
+  });
+
+  it('works when all delayed tasks are due', async function() {
+    const cb = sinon.stub();
+    const dt = createTasksObject(cb);
+
+    // For good measure, make sure we're not starting with any tasks
+    await clearQueue(dt);
+
+    // Add some tasks
+    const tasksToAdd = [
+      {
+        delay: 100,
+        data: { foo: 'bar' }
+      },
+      {
+        delay: 300,
+        data: { foo: 'baz' }
+      },
+      {
+        delay: 200,
+        data: { foo: 'ban' }
+      },
+      {
+        delay: 50,
+        data: { foo: 'first' }
+      }
+    ];
+
+    let maxDelay = 0;
+    try {
+
+      // Add all test tasks
+      for (let i=0;i<tasksToAdd.length;i++) {
+        tasksToAdd[i].id = await dt.add(tasksToAdd[i].delay, tasksToAdd[i].data);
+
+        if (tasksToAdd[i].delay > maxDelay) {
+          maxDelay = tasksToAdd[i].delay;
+        }
+      }
+
+    } catch (e) {
+      console.error(e);
+      assert.fail('Unexpected error');
+    }
+
+    // Wait for tasks to come due
+    await new Promise(r => setTimeout(r, maxDelay + 1));
+
+    const tasksRemoved = await dt.poll();
+
+    // Check that tasks were processed
+    assert.equal(tasksRemoved, tasksToAdd.length);
+    assert.equal(cb.callCount, tasksToAdd.length);
+    tasksToAdd.forEach(t => assert.equal(cb.calledWith(t.data, t.id), true));
+
+    // Ensure that all tasks were removed
+    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    assert.equal(tasks.length, 0);
+  });
+
+  it('works when some delayed tasks are due', async function() {
+    const cb = sinon.stub();
+    const dt = createTasksObject(cb);
+
+    // For good measure, make sure we're not starting with any tasks
+    await clearQueue(dt);
+
+    // Add some tasks
+    const tasksToAdd = [
+      {
+        delay: 100,
+        data: { foo: 'bar' }
+      },
+      {
+        delay: 300,
+        data: { foo: 'baz' }
+      },
+      {
+        delay: 200,
+        data: { foo: 'ban' }
+      },
+      {
+        delay: 50,
+        data: { foo: 'first' }
+      }
+    ];
+
+    let maxDelay = 0;
+    try {
+
+      // Add all test tasks
+      for (let i=0;i<tasksToAdd.length;i++) {
+        tasksToAdd[i].id = await dt.add(tasksToAdd[i].delay, tasksToAdd[i].data);
+
+        if (tasksToAdd[i].delay > maxDelay) {
+          maxDelay = tasksToAdd[i].delay;
+        }
+      }
+
+    } catch (e) {
+      console.error(e);
+      assert.fail('Unexpected error');
+    }
+
+    // ADD 2 MORE TASKS DUE MUCH LATER
+    await Promise.all([
+      dt.add(10000, { deferred: 1 }),
+      dt.add(11000, { deferred: 2 })
+    ]);
+
+    // Wait for tasks to come due
+    await new Promise(r => setTimeout(r, maxDelay + 1));
+
+    const tasksRemoved = await dt.poll();
+
+    // Check that tasks were processed
+    assert.equal(tasksRemoved, tasksToAdd.length);
+    assert.equal(cb.callCount, tasksToAdd.length);
+    tasksToAdd.forEach(t => assert.equal(cb.calledWith(t.data, t.id), true));
+
+    // Ensure that correct tasks were removed
+    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    assert.equal(tasks.length, 2);
+    assert.deepEqual(tasks[0].data, { deferred: 1 });
+    assert.deepEqual(tasks[1].data, { deferred: 2 });
+  });
+
+  it('works when all tasks are delayed', async function() {
+    const cb = sinon.stub();
+    const dt = createTasksObject(cb);
+
+    // For good measure, make sure we're not starting with any tasks
+    await clearQueue(dt);
+
+    // Add some tasks
+    const tasksToAdd = [
+      {
+        delay: 1000,
+        data: { foo: 'bar' }
+      },
+      {
+        delay: 3000,
+        data: { foo: 'baz' }
+      },
+      {
+        delay: 2000,
+        data: { foo: 'ban' }
+      },
+      {
+        delay: 500,
+        data: { foo: 'first' }
+      }
+    ];
+
+    try {
+
+      // Add all test tasks
+      for (let i=0;i<tasksToAdd.length;i++) {
+        tasksToAdd[i].id = await dt.add(tasksToAdd[i].delay, tasksToAdd[i].data);
+      }
+
+    } catch (e) {
+      console.error(e);
+      assert.fail('Unexpected error');
+    }
+
+    // Process immediately so that no tasks are processed
+    const tasksRemoved = await dt.poll();
+
+    // Check that tasks were processed
+    assert.equal(tasksRemoved, 0);
+    assert.equal(cb.callCount, 0);
+
+    // Ensure that correct tasks were removed
+    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    assert.equal(tasks.length, 4);
+  });
+
+  it('elegantly fails if key is updated during poll', async function() {
+    const cb = sinon.stub();
+    const dt = createTasksObject(cb);
+
+    // For good measure, make sure we're not starting with any tasks
+    await clearQueue(dt);
+
+    // Add some tasks
+    const tasksToAdd = [
+      {
+        delay: 100,
+        data: { foo: 'bar' }
+      },
+      {
+        delay: 300,
+        data: { foo: 'baz' }
+      },
+      {
+        delay: 200,
+        data: { foo: 'ban' }
+      },
+      {
+        delay: 50,
+        data: { foo: 'first' }
+      }
+    ];
+
+    let maxDelay = 0;
+    try {
+
+      // Add all test tasks
+      for (let i=0;i<tasksToAdd.length;i++) {
+        tasksToAdd[i].id = await dt.add(tasksToAdd[i].delay, tasksToAdd[i].data);
+
+        if (tasksToAdd[i].delay > maxDelay) {
+          maxDelay = tasksToAdd[i].delay;
+        }
+      }
+
+    } catch (e) {
+      console.error(e);
+      assert.fail('Unexpected error');
+    }
+
+    // Wait for tasks to come due
+    await new Promise(r => setTimeout(r, maxDelay + 1));
+
+    // Poll asynchronously
+    const pollPromise = dt.poll();
+
+    // Add another task while we're polling
+    dt.add(1000, {})
+
+    const tasksRemoved = await pollPromise;
+
+    // Check that tasks were processed
+    assert.equal(tasksRemoved, 0);
+    assert.equal(cb.callCount, 0);
+
+    // All tasks should be remaining since there was a redis transaction conflict
+    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+
+    /// NOTE: This is 5 now because we added another during polling
+    assert.equal(tasks.length, 5);
   });
 
 });
