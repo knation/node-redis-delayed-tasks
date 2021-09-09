@@ -1,18 +1,22 @@
 
 const redis = require('redis');
-const { promisifyAll } = require('bluebird');
 const { v1: uuidv1 } = require('uuid');
-
-promisifyAll(redis);
 
 class DelayedTasks {
 
-  constructor(redisConn, settings = {}) {
+  constructor(settings = {}) {
 
-    if (redisConn instanceof redis.RedisClient) {
-      this.redisClient = redisConn;
-    } else if (typeof redisConn === 'object') {
-      this.redisClient = redis.createClient(redisConn);
+    // Check ID
+    if (typeof settings.id === 'string') {
+      this.id = settings.id;
+    } else {
+      throw new TypeError('Invalid queue ID specified');
+    }
+
+    if (settings.redis instanceof redis.RedisClient) {
+      this.redisClient = settings.redis;
+    } else if (typeof settings.redis === 'object') {
+      this.redisClient = redis.createClient(settings.redis);
     } else {
       throw new TypeError('Invalid redis connection options');
     }
@@ -24,30 +28,42 @@ class DelayedTasks {
       throw new TypeError('Invalid callback function specified');
     }
 
-    // Generate a unique queue ID
-    this.queueId = uuidv1();
-    this.setName = `delayed:${ this.queueId }`;
+    // Create the queue name (will be the redis key for the ZSET)
+    this.redisKey = `delayed:${ this.id }`;
+
+    // Force a settings object
+    settings.options = settings.options || {};
 
     // Poll Interval - how often to poll redis (Default: 1000ms)
-    if (!isNaN(settings.pollIntervalMs) && settings.pollIntervalMs > 0) {
-      this.pollIntervalMs = settings.pollIntervalMs;
+    if (typeof settings.options.pollIntervalMs === 'number' && settings.options.pollIntervalMs > 0) {
+      this.pollIntervalMs = settings.options.pollIntervalMs;
     } else {
       this.pollIntervalMs = 1000;
     }
+
+    // Poll size - how many items to pop off redis on each poll (Default: 10)
+    if (typeof settings.options.pollSize === 'number' && settings.options.pollSize > 0) {
+      this.pollSize = settings.options.pollSize;
+    } else {
+      this.pollSize = 10;
+    }
+
+    this.pollIntervalId = null;
   }
 
   /**
    * Start polling.
    */
   start() {
-    this.interval = setInterval(this.pollIntervalMs, this.poll.bind(this));
+    this.pollIntervalId = setInterval(this.poll.bind(this), this.pollIntervalMs);
   }
 
   /**
    * Stops polling.
    */
   stop() {
-    clearInterval(this.interval);
+    clearInterval(this.pollIntervalId);
+    this.pollIntervalId = null;
   }
 
   /**
@@ -56,8 +72,38 @@ class DelayedTasks {
   async poll() {
     const now = new Date().getTime();
 
-    const tasks = await this.redisClient.zrangebyscoreAsync(this.setName, 0, now);
-    console.log(tasks);
+    // Pop `this.pollSize` number of tasks from the queue
+    const tasks = await new Promise((resolve, reject) => {
+      this.redisClient.zpopmin(this.redisKey, this.pollSize, (err, tasks) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(tasks.map(t => JSON.parse(t)));
+        }
+      });
+    });
+
+    // Iterate tasks and stop at future tasks
+    for (const task of tasks) {
+      if (task.delayedTime <= now) {
+        // Pass this task to the callback method
+        this.callback.call(null, task.id, task.delayUntil, task.data);
+      } else {
+        // Add this task back into redis
+        this.addToRedis(task.delayUntil, JSON.stringify(task));
+      }
+    }
+  }
+
+  /**
+   * Adds a task to redis.
+   */
+  addToRedis(delayedTime, task) {
+    return new Promise((resolve, reject) => {
+      this.redisClient.zadd(this.redisKey, delayedTime, task, (err, result) => {
+        err ? reject(err) : resolve(result);
+      });
+    });
   }
 
   /**
@@ -65,8 +111,10 @@ class DelayedTasks {
    */
   async add(delayMs, data) {
     // Validate `delayMs`
-    if (isNaN(delayMs) || delayMs <= 0) {
-      throw new Error('`delayMs` must be a positive integer');
+    if (typeof delayMs !== 'number' || delayMs <= 0) {
+      throw new TypeError('`delayMs` must be a positive integer');
+    } else if (data === undefined || data === null) {
+      throw new TypeError('No value provided for `data`');
     }
 
     // Set time to execute
@@ -76,12 +124,13 @@ class DelayedTasks {
     const taskId = uuidv1();
 
     // Serialize data
-    const key = JSON.stringify({
+    const task = JSON.stringify({
       id: taskId,
+      delayUntil: delayedTime,
       data
     });
 
-    await this.redisClient.zaddAsync(this.setName, delayedTime, key);
+    await this.addToRedis(delayedTime, task);
 
     return taskId;
   }
