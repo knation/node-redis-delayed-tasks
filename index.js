@@ -95,7 +95,7 @@ class DelayedTasks {
                     .forEach(t => this.callback.call(this, t.data, t.id, t.due));
                 }
 
-                resolve(results[0] ?? 0);
+                resolve(results[0] === null ? 0 : results[0]);
 
                 /**
                  * If results === null, it means that a concurrent client
