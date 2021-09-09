@@ -11,6 +11,12 @@ Possible use cases include:
 * Delaying a task wherein using `setTimeout` introduces a risk if the application crashes.
 * Distributing future tasks across multiple workers.
 
+## Installation
+
+```bash
+npm i redis-delayed-tasks
+```
+
 
 ## Usage
 
