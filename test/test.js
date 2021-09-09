@@ -421,7 +421,7 @@ describe('add()', function() {
       assert.equal(tasks[i].id, tasksToAdd[i].id);
       assert.deepEqual(tasks[i].data, tasksToAdd[i].data);
 
-      // NOTE: We can't accurately check the `delayUntil` property from redis
+      // NOTE: We can't accurately check the `due` property from redis
       // because the clock may change during the test. That said, `poll()` tests
       // later on will confirm that the zset works correctly.
     }

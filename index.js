@@ -99,7 +99,7 @@ class DelayedTasks {
                   // Process tasks
                   tasks
                     .map(t => JSON.parse(t))
-                    .forEach(t => this.callback.call(null, t.data, t.id, t.delayUntil));
+                    .forEach(t => this.callback.call(null, t.data, t.id, t.due));
                 }
 
                 resolve(results[0] ?? 0);
@@ -158,7 +158,7 @@ class DelayedTasks {
     // Serialize data
     const task = JSON.stringify({
       id: taskId,
-      delayUntil: delayedTime,
+      due: delayedTime,
       data
     });
 
