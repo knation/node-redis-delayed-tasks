@@ -88,14 +88,14 @@ class DelayedTasks {
 
                 // Success, either that the update was made, or the key changed
 
-                if (results[0] !== null) {
+                if (results && results[0] !== null) {
                   // Process tasks
                   tasks
                     .map(t => JSON.parse(t))
                     .forEach(t => this.callback.call(this, t.data, t.id, t.due));
                 }
 
-                resolve(results[0] === null ? 0 : results[0]);
+                resolve((!results || results[0] === null) ? 0 : results[0]);
 
                 /**
                  * If results === null, it means that a concurrent client
