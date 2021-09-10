@@ -64,6 +64,14 @@ class DelayedTasks {
   }
 
   /**
+   * Closes up shop.
+   */
+  close() {
+    this.stop();
+    this.redisClient.quit();
+  }
+
+  /**
    * Polls redis for tasks.
    */
   poll() {

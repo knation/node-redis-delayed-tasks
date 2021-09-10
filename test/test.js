@@ -396,23 +396,27 @@ describe('add()', function() {
 
 });
 
-describe('start/stop', function() {
+it('start/stop/close', function() {
+  const dt = createTasksObject();
 
-  it('starts/stops the polling', function() {
-    const dt = createTasksObject();
+  // Should be null after init
+  assert.equal(dt.pollIntervalId, null);
 
-    // Should be null after init
-    assert.equal(dt.pollIntervalId, null);
+  // Is the interval ID after start()
+  dt.start();
+  assert.ok(dt.pollIntervalId);
 
-    // Is the interval ID after start()
-    dt.start();
-    assert.ok(dt.pollIntervalId);
+  // Is empty after stop
+  dt.stop();
+  assert.equal(dt.pollIntervalId, null);
 
-    // Is empty after stop
-    dt.stop();
-    assert.equal(dt.pollIntervalId, null);
-  });
+  // Start again
+  dt.start();
+  assert.ok(dt.pollIntervalId);
 
+  // Close and test interval again
+  dt.close();
+  assert.equal(dt.pollIntervalId, null);
 });
 
 describe('poll', function() {
