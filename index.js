@@ -108,8 +108,7 @@ class DelayedTasks {
               });
 
             } else {
-              // No changes to make, so discard the transaction
-              this.redisClient.discard();
+              // No changes to make
               resolve(0);
             }
         });
