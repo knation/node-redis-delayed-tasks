@@ -1,6 +1,6 @@
 {
   "name": "redis-delayed-tasks",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Allows for the future execution of tasks utilizing redis as a datastore.",
   "main": "index.js",
   "scripts": {
