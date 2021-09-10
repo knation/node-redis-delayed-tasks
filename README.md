@@ -110,7 +110,13 @@ The constructor takes a single object. Properties are as follows:
 
 ### start / stop polling
 
-To begin polling for tasks, call `dt.start()`. To pause or to clean up, call `dt.stop()` to stop future polling.
+To begin polling for tasks, call `dt.start()`. Call `dt.stop()` to stop future polling.
+
+### close()
+
+Calling `dt.close()` will stop polling and close the redis client being used.
+
+**CAUTION:** If you passed your own redis client in the constructor, that client will be closed with this command. If you just want to stop polling, but leave the connection open, call `dt.stop()` instead.
 
 ### add(_delayMs_, _data_)
 
