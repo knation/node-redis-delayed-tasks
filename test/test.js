@@ -1,6 +1,5 @@
 const assert = require('assert');
 const sinon = require('sinon');
-const fakeredis = require('fakeredis');
 const redis = require('redis');
 const { validate: uuidValidate } = require('uuid');
 
@@ -20,8 +19,10 @@ function isValidTasksObject(dt) {
 /**
  * Creates a standard, redis-mocked `DelayedTasks` object.
  */
-function createTasksObject(callback) {
-  const client = redis.createClient();
+async function createTasksObject(callback) {
+  const client = redis.createClient({
+    legacyMode: true
+  });
 
   const dt = new DelayedTasks({
     redis: client,
@@ -29,9 +30,9 @@ function createTasksObject(callback) {
     callback: callback || (() => {})
   });
 
-  // Replace client with mock
-  dt.redisClient.quit();
-  dt.redisClient = fakeredis.createClient();
+  await dt.connect();
+
+  await clearQueue(dt)
 
   return dt;
 }
@@ -70,15 +71,15 @@ function getTasksUntil(dt, end) {
 describe('constructor', function() {
 
   it('should create redis client with existing client', function() {
-    const client = redis.createClient();
+    const client = redis.createClient({
+      legacyMode: true
+    });
 
     const dt = new DelayedTasks({
       redis: client,
       id: 'test',
       callback: () => {}
     });
-
-    client.quit();
 
     isValidTasksObject(dt);
 
@@ -155,7 +156,9 @@ describe('constructor', function() {
   it('fails when an invalid callback is provided', function() {
     assert.throws(
       () => {
-        const client = redis.createClient();
+        const client = redis.createClient({
+          legacyMode: true
+        });
 
         try {
           const dt = new DelayedTasks({
@@ -179,7 +182,9 @@ describe('constructor', function() {
   it('fails when id is missing', function() {
     assert.throws(
       () => {
-        const client = redis.createClient();
+        const client = redis.createClient({
+          legacyMode: true
+        });
 
         try {
           const dt = new DelayedTasks({
@@ -202,7 +207,9 @@ describe('constructor', function() {
   it('fails when id is invalid', function() {
     assert.throws(
       () => {
-        const client = redis.createClient();
+        const client = redis.createClient({
+          legacyMode: true
+        });
 
         try {
           const dt = new DelayedTasks({
@@ -260,7 +267,7 @@ describe('constructor', function() {
 describe('add()', function() {
 
   it('fails with an invalid delay', async function() {
-    const dt = createTasksObject();
+    const dt = await createTasksObject();
 
     try {
       await dt.add(false, {});
@@ -274,11 +281,13 @@ describe('add()', function() {
           message: '`delayMs` must be a positive integer'
         }
       );
+    } finally {
+      dt.close()
     }
   });
 
   it('fails with a non-positive delay', async function() {
-    const dt = createTasksObject();
+    const dt = await createTasksObject();
 
     try {
       await dt.add(0, {});
@@ -292,11 +301,13 @@ describe('add()', function() {
           message: '`delayMs` must be a positive integer'
         }
       );
+    } finally {
+      dt.close()
     }
   });
 
   it('fails with an undefined data object', async function() {
-    const dt = createTasksObject();
+    const dt = await createTasksObject();
 
     try {
       await dt.add(1);
@@ -310,11 +321,13 @@ describe('add()', function() {
           message: 'No value provided for `data`'
         }
       );
+    } finally {
+      dt.close()
     }
   });
 
   it('fails with a null data object', async function() {
-    const dt = createTasksObject();
+    const dt = await createTasksObject();
 
     try {
       await dt.add(1, null);
@@ -328,11 +341,13 @@ describe('add()', function() {
           message: 'No value provided for `data`'
         }
       );
+    } finally {
+      dt.close()
     }
   });
 
   it('adds delayed tasks', async function() {
-    const dt = createTasksObject();
+    const dt = await createTasksObject();
 
     const now = new Date().getTime();
 
@@ -392,18 +407,20 @@ describe('add()', function() {
       // because the clock may change during the test. That said, `poll()` tests
       // later on will confirm that the zset works correctly.
     }
+
+    dt.close()
   });
 
 });
 
-it('start/stop/close', function() {
-  const dt = createTasksObject();
+it('start/stop/close', async function() {
+  const dt = await createTasksObject();
 
   // Should be null after init
   assert.equal(dt.pollIntervalId, null);
 
   // Is the interval ID after start()
-  dt.start();
+  await dt.start();
   assert.ok(dt.pollIntervalId);
 
   // Is empty after stop
@@ -423,10 +440,7 @@ describe('poll', function() {
 
   it('works with no delayed tasks', async function() {
     const cb = sinon.stub();
-    const dt = createTasksObject(cb);
-
-    // For good measure, make sure we're not starting with any tasks
-    await clearQueue(dt);
+    const dt = await createTasksObject(cb);
 
     const tasksRemoved = await dt.poll();
 
@@ -437,14 +451,13 @@ describe('poll', function() {
     // Ensure that all tasks were removed
     tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
     assert.equal(tasks.length, 0);
+
+    dt.close()
   });
 
   it('works when all delayed tasks are due', async function() {
     const cb = sinon.stub();
-    const dt = createTasksObject(cb);
-
-    // For good measure, make sure we're not starting with any tasks
-    await clearQueue(dt);
+    const dt = await createTasksObject(cb);
 
     // Add some tasks
     const tasksToAdd = [
@@ -496,14 +509,13 @@ describe('poll', function() {
     // Ensure that all tasks were removed
     tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
     assert.equal(tasks.length, 0);
+
+    dt.close()
   });
 
   it('works when some delayed tasks are due', async function() {
     const cb = sinon.stub();
-    const dt = createTasksObject(cb);
-
-    // For good measure, make sure we're not starting with any tasks
-    await clearQueue(dt);
+    const dt = await createTasksObject(cb);
 
     // Add some tasks
     const tasksToAdd = [
@@ -563,14 +575,13 @@ describe('poll', function() {
     assert.equal(tasks.length, 2);
     assert.deepEqual(tasks[0].data, { deferred: 1 });
     assert.deepEqual(tasks[1].data, { deferred: 2 });
+
+    dt.close()
   });
 
   it('works when all tasks are delayed', async function() {
     const cb = sinon.stub();
-    const dt = createTasksObject(cb);
-
-    // For good measure, make sure we're not starting with any tasks
-    await clearQueue(dt);
+    const dt = await createTasksObject(cb);
 
     // Add some tasks
     const tasksToAdd = [
@@ -614,14 +625,13 @@ describe('poll', function() {
     // Ensure that correct tasks were removed
     tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
     assert.equal(tasks.length, 4);
+
+    dt.close()
   });
 
   it('elegantly fails if key is updated during poll', async function() {
     const cb = sinon.stub();
-    const dt = createTasksObject(cb);
-
-    // For good measure, make sure we're not starting with any tasks
-    await clearQueue(dt);
+    const dt = await createTasksObject(cb);
 
     // Add some tasks
     const tasksToAdd = [
@@ -680,6 +690,8 @@ describe('poll', function() {
 
     /// NOTE: This is 5 now because we added another during polling
     assert.equal(tasks.length, 5);
+
+    dt.close()
   });
 
 });
