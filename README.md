@@ -17,6 +17,10 @@ Possible use cases include:
 npm i redis-delayed-tasks
 ```
 
+## Upgrading from v1 to v2
+
+Version 2 does not introduce any new features, but rather uses `node-redis` v4 under the hood and therefore could incorporate breaking changes if you're using an older version of the redis library elsewhere. The library is instantiated the same way and just requires an additional line afterwards: `await dt.connect()`.
+
 
 ## Usage
 
@@ -36,6 +40,9 @@ const dt = new DelayedTasks({
     // `dueTime` is the epoch (milliseconds) of when the task was due
   }
 });
+
+// Connect to redis (new in v2)
+await dt.connect()
 
 // Start polling
 dt.start();
@@ -106,7 +113,11 @@ The constructor takes a single object. Properties are as follows:
 | `callback`               | The function to call when tasks are due. <br><br>When a task is due or past-due, your callback method is called asynchronously, passing the `data` you provided when adding, the generated `taskId`, and the time (in ms) that the task was due.<br><br>The context of `this` is the `DelayedTasks` object.                                                                                                                           | Yes      |         |
 | `options.pollIntervalMs` | How often to poll redis for tasks due (in milliseconds). The shorter the interval, the sooner after being due a task will be processed, but the more load in redis. | No       | 1000    |
 
-<sup>1</sup> This module uses `node_redis` under the hood and supports versions < 4.0.0. If you're using a redis client or connection data compatible with `node_redis@4.*`, it will not work.
+<sup>1</sup> This module uses [`node-redis`](https://github.com/redis/node-redis) version 4 under the hood in legacy mode.
+
+### Connect
+
+Before doing anything, call `await dt.connect()` to connect to redis.
 
 ### start / stop polling
 
@@ -138,6 +149,9 @@ dt.add(30000, { foo: 'bar' });
 
 To force a poll outside of the poll interval, call `dt.poll()`. This should be used with caution as it could potentially interfere with an active poll, therefore causing a transaction conflict in redis.
 
+## Testing
+
+Start a local redis server on port 6379. You can run `docker-compose up` to launch one from this repo. Once redis is running, run `npm test` or `npm coverage`.
 
 ## Notes
 
@@ -157,16 +171,15 @@ If the redis key is updated during the internal `poll()` call, we do not retry a
 be improved in the future. For now, we recommend surrounding with try-catch to
 catch everything, including redis errors.
 
-* Possibly promisify all redis functions. At the moment, it's not worth the effort
-for minimal use and isn't worth the overhead of promised functions.
+* Use non-legacy mode of node-redis v4.
 
 * Trap errors from `callback()`
-
-* Add coverage for redis errors. This is currently ignored via comments since `fakeredis` is used to mock redis.
 
 * Ability to cancel a task by ID or data. Will wait until there's a genuine desire for this. For now, we'll assume that a task won't be added until it _should_ run in the future.
 
 * Add a flag when the class is polling to prevent conflicts on explicit polls.
+
+* Better handling of watch conflicts in `dt.poll`. Right now it just quits, but if this happens a lot, nothing would end up getting processed.
 
 ## License
 MIT License
