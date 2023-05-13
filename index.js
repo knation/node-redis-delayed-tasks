@@ -17,13 +17,18 @@ class DelayedTasks {
       throw new TypeError('Invalid queue ID specified');
     }
 
-    if (settings.redis instanceof redis.RedisClient) {
+    if (typeof settings.redis?.connect === 'function') {
       this.redisClient = settings.redis;
     } else if (typeof settings.redis === 'object') {
+      settings.redis.legacyMode = true;
       this.redisClient = redis.createClient(settings.redis);
     } else {
       throw new TypeError('Invalid redis connection options');
     }
+
+    this.redisClient.on("error", function(error) {
+      // todo: do something with this
+    });
 
     // Callback function for all delayed tasks
     if (typeof settings.callback === 'function') {
@@ -46,6 +51,10 @@ class DelayedTasks {
     }
 
     this.pollIntervalId = null;
+  }
+
+  connect() {
+    return this.redisClient.connect();
   }
 
   /**
@@ -92,7 +101,10 @@ class DelayedTasks {
               .zremrangebyscore(this.redisKey, 0, now)
               .exec((execError, results) => {
                 /* istanbul ignore next */
-                if (execError) return reject(execError);
+                if (execError) {
+                  resolve(0);
+                  return;
+                }
 
                 // Success, either that the update was made, or the key changed
 
@@ -106,12 +118,9 @@ class DelayedTasks {
                 resolve((!results || results[0] === null) ? 0 : results[0]);
 
                 /**
-                 * If results === null, it means that a concurrent client
+                 * If execError is a "WatchError", it means that a concurrent client
                  * changed the key while we were processing it and thus
                  * the execution of the MULTI command was not performed.
-                 *
-                 * NOTICE: Failing an execution of MULTI is not considered
-                 * an error. So you will have err === null and results === null
                  */
               });
 
