@@ -17,18 +17,24 @@ class DelayedTasks {
       throw new TypeError('Invalid queue ID specified');
     }
 
+    // Will be set to true if the redis instance is self-contained
+    this.selfContainedResis = false;
+
     if (typeof settings.redis?.connect === 'function') {
       this.redisClient = settings.redis;
+
     } else if (typeof settings.redis === 'object') {
       settings.redis.legacyMode = true;
       this.redisClient = redis.createClient(settings.redis);
+      this.selfContainedResis = true;
+      this.redisClient.on("error", function(error) {
+        // todo: do something with this
+      });
+
     } else {
       throw new TypeError('Invalid redis connection options');
     }
 
-    this.redisClient.on("error", function(error) {
-      // todo: do something with this
-    });
 
     // Callback function for all delayed tasks
     if (typeof settings.callback === 'function') {
@@ -54,14 +60,30 @@ class DelayedTasks {
   }
 
   connect() {
-    return this.redisClient.connect();
+    if (!this.redisClient.isReady) {
+      const p = new Promise(resolve => this.redisClient.on('ready', resolve));
+
+      this.redisClient.connect();
+
+      return p;
+
+    } else {
+      // Already connected -- nothing to do and no failure
+      return Promise.resolve();
+    }
   }
 
   /**
    * Start polling.
    */
   start() {
-    this.pollIntervalId = setInterval(this.poll.bind(this), this.pollIntervalMs);
+    if (this.redisClient.isReady) {
+      this.pollIntervalId = setInterval(this.poll.bind(this), this.pollIntervalMs);
+      return true;
+
+    } else {
+      return false;
+    }
   }
 
   /**
@@ -73,11 +95,16 @@ class DelayedTasks {
   }
 
   /**
-   * Closes up shop.
+   * Closes up shop. If the redis instance is self contained (it was created,
+   * just for this object instance), it will be deleted.
    */
-  close() {
+  async close() {
     this.stop();
-    this.redisClient.quit();
+
+    if (this.selfContainedResis && this.redisClient.isReady) {
+      await this.redisClient.disconnect();
+      this.redisClient = null;
+    }
   }
 
   /**
@@ -102,11 +129,18 @@ class DelayedTasks {
               .exec((execError, results) => {
                 /* istanbul ignore next */
                 if (execError) {
-                  resolve(0);
-                  return;
+                  if (execError instanceof redis.WatchError) {
+                    /**
+                     * If execError is a "WatchError", it means that a concurrent client
+                     * changed the key while we were processing it and thus
+                     * the execution of the MULTI command was not performed. We'll fail
+                     * silently as those jobs will be picked up on the next `poll()`
+                     */
+                    return resolve(0);
+                  } else {
+                    return reject(execError)
+                  }
                 }
-
-                // Success, either that the update was made, or the key changed
 
                 if (results && results[0] !== null) {
                   // Process tasks
@@ -116,16 +150,11 @@ class DelayedTasks {
                 }
 
                 resolve((!results || results[0] === null) ? 0 : results[0]);
-
-                /**
-                 * If execError is a "WatchError", it means that a concurrent client
-                 * changed the key while we were processing it and thus
-                 * the execution of the MULTI command was not performed.
-                 */
               });
 
             } else {
               // No changes to make
+              this.redisClient.unwatch();
               resolve(0);
             }
         });
