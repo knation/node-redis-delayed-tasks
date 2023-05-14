@@ -16,39 +16,32 @@ function isValidTasksObject(dt) {
   assert.equal(dt.pollIntervalId, null);
 }
 
+var testClient;
+
+const testTaskId = 'test';
+
 /**
  * Creates a standard, redis-mocked `DelayedTasks` object.
  */
 async function createTasksObject(callback) {
-  const client = redis.createClient({
-    legacyMode: true
-  });
-
   const dt = new DelayedTasks({
-    redis: client,
-    id: 'test',
+    redis: testClient,
+    id: testTaskId,
     callback: callback || (() => {})
   });
-
-  await dt.connect();
-
-  await clearQueue(dt)
 
   return dt;
 }
 
-/**
- * Clears the queue for the given object.
- */
-function clearQueue(dt) {
+function clearQueue() {
   return new Promise((resolve, reject) => {
-    dt.redisClient.zremrangebyscore(dt.redisKey, '-inf', 'inf', (err) => {
+    testClient.zremrangebyscore(`delayed:${testTaskId}`, '-inf', 'inf', (err) => {
       if (err) {
         reject(err);
       } else {
         resolve();
       }
-    });
+    })
   });
 }
 
@@ -56,9 +49,9 @@ function clearQueue(dt) {
  * This is pretty much just a wrapper method for `zrangebyscore`, wrapped in
  * a promise.
  */
-function getTasksUntil(dt, end) {
+function getTasksUntil(end) {
   return new Promise((resolve, reject) => {
-    dt.redisClient.zrange(dt.redisKey, 0, end, (err, tasks) => {
+    testClient.zrange(`delayed:${testTaskId}`, 0, end, (err, tasks) => {
       if (err) {
         reject(err);
       } else {
@@ -68,34 +61,72 @@ function getTasksUntil(dt, end) {
   });
 }
 
+before(async function() {
+  testClient = redis.createClient({
+    legacyMode: true
+  });
+
+  testClient.on("error", err => {
+    if (!(err instanceof redis.SocketClosedUnexpectedlyError)) {
+      console.error(err);
+    }
+  });
+
+  await testClient.connect()
+
+  await clearQueue()
+})
+
+afterEach(async function() {
+  await clearQueue()
+})
+
+after(async function() {
+  await testClient.disconnect();
+})
+
 describe('constructor', function() {
 
-  it('should create redis client with existing client', function() {
+  it('should create redis client with existing client', async function() {
     const client = redis.createClient({
       legacyMode: true
     });
 
     const dt = new DelayedTasks({
       redis: client,
-      id: 'test',
+      id: testTaskId,
       callback: () => {}
     });
 
     isValidTasksObject(dt);
 
-    client.quit();
+    await dt.close()
   });
 
-  it('should create redis client with provided object', function() {
+  it('should create redis client with provided object', async function() {
     const dt = new DelayedTasks({
       redis: {},
-      id: 'test',
+      id: testTaskId,
       callback: () => {}
     });
 
     isValidTasksObject(dt);
 
-    dt.redisClient.quit();
+    assert.ok(dt.selfContainedResis)
+
+    // Make sure it can't start yet since it hasn't connected
+    started = dt.start()
+    assert.strictEqual(started, false);
+
+    // Test connect
+    await dt.connect();
+    assert.ok(dt.redisClient.isReady);
+
+    // for coverage, connect again to have it skipped
+    await dt.connect();
+
+    // This will also close the internal client
+    await dt.close()
   });
 
   it('fails when no settings provided', function() {
@@ -119,7 +150,7 @@ describe('constructor', function() {
       () => {
         try {
           const dt = new DelayedTasks({
-            id: 'test',
+            id: testTaskId,
             callback: () => {}
           });
         } catch (e) {
@@ -139,7 +170,7 @@ describe('constructor', function() {
         try {
           const dt = new DelayedTasks({
             redis: false,
-            id: 'test',
+            id: testTaskId,
             callback: () => {}
           });
         } catch (e) {
@@ -163,7 +194,7 @@ describe('constructor', function() {
         try {
           const dt = new DelayedTasks({
             redis: client,
-            id: 'test',
+            id: testTaskId,
             callback: true
           });
         } catch (e) {
@@ -219,8 +250,6 @@ describe('constructor', function() {
           });
         } catch (e) {
           throw e;
-        } finally {
-          client.quit();
         }
       },
       {
@@ -230,9 +259,9 @@ describe('constructor', function() {
     );
   });
 
-  it('uses default `pollIntervalMs` if invalid', function() {
+  it('uses default `pollIntervalMs` if invalid', async function() {
     const dt = new DelayedTasks({
-      id: 'test',
+      id: testTaskId,
       redis: {},
       callback: () => {},
       options: {
@@ -243,12 +272,12 @@ describe('constructor', function() {
     isValidTasksObject(dt);
     assert.equal(dt.pollIntervalMs, 1000);
 
-    dt.redisClient.quit();
+    await dt.close();
   });
 
-  it('allows for a custom `pollIntervalMs` value', function() {
+  it('allows for a custom `pollIntervalMs` value', async function() {
     const dt = new DelayedTasks({
-      id: 'test',
+      id: testTaskId,
       redis: {},
       callback: () => {},
       options: {
@@ -259,7 +288,7 @@ describe('constructor', function() {
     isValidTasksObject(dt);
     assert.equal(dt.pollIntervalMs, 100);
 
-    dt.redisClient.quit();
+    await dt.close();
   });
 
 });
@@ -282,7 +311,7 @@ describe('add()', function() {
         }
       );
     } finally {
-      dt.close()
+      await dt.close()
     }
   });
 
@@ -302,7 +331,7 @@ describe('add()', function() {
         }
       );
     } finally {
-      dt.close()
+      await dt.close()
     }
   });
 
@@ -322,7 +351,7 @@ describe('add()', function() {
         }
       );
     } finally {
-      dt.close()
+      await dt.close()
     }
   });
 
@@ -342,7 +371,7 @@ describe('add()', function() {
         }
       );
     } finally {
-      dt.close()
+      await dt.close()
     }
   });
 
@@ -390,7 +419,7 @@ describe('add()', function() {
       assert.fail('Unexpected error');
     }
 
-    const tasks = await getTasksUntil(dt, new Date().getTime() + maxDelay);
+    const tasks = await getTasksUntil(new Date().getTime() + maxDelay);
 
     // Check total results
     assert.equal(tasks.length, tasksToAdd.length);
@@ -408,7 +437,7 @@ describe('add()', function() {
       // later on will confirm that the zset works correctly.
     }
 
-    dt.close()
+    await dt.close()
   });
 
 });
@@ -420,7 +449,8 @@ it('start/stop/close', async function() {
   assert.equal(dt.pollIntervalId, null);
 
   // Is the interval ID after start()
-  await dt.start();
+  started = dt.start();
+  assert.ok(started);
   assert.ok(dt.pollIntervalId);
 
   // Is empty after stop
@@ -428,11 +458,12 @@ it('start/stop/close', async function() {
   assert.equal(dt.pollIntervalId, null);
 
   // Start again
-  dt.start();
+  started = dt.start();
+  assert.ok(started);
   assert.ok(dt.pollIntervalId);
 
   // Close and test interval again
-  dt.close();
+  await dt.close();
   assert.equal(dt.pollIntervalId, null);
 });
 
@@ -449,10 +480,10 @@ describe('poll', function() {
     assert.equal(cb.callCount, 0);
 
     // Ensure that all tasks were removed
-    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    tasks = await getTasksUntil(new Date().getTime() + 100000000);
     assert.equal(tasks.length, 0);
 
-    dt.close()
+    await dt.close()
   });
 
   it('works when all delayed tasks are due', async function() {
@@ -507,10 +538,10 @@ describe('poll', function() {
     tasksToAdd.forEach(t => assert.equal(cb.calledWith(t.data, t.id), true));
 
     // Ensure that all tasks were removed
-    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    tasks = await getTasksUntil(new Date().getTime() + 100000000);
     assert.equal(tasks.length, 0);
 
-    dt.close()
+    await dt.close()
   });
 
   it('works when some delayed tasks are due', async function() {
@@ -571,12 +602,12 @@ describe('poll', function() {
     tasksToAdd.forEach(t => assert.equal(cb.calledWith(t.data, t.id), true));
 
     // Ensure that correct tasks were removed
-    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    tasks = await getTasksUntil(new Date().getTime() + 100000000);
     assert.equal(tasks.length, 2);
     assert.deepEqual(tasks[0].data, { deferred: 1 });
     assert.deepEqual(tasks[1].data, { deferred: 2 });
 
-    dt.close()
+    await dt.close()
   });
 
   it('works when all tasks are delayed', async function() {
@@ -623,10 +654,10 @@ describe('poll', function() {
     assert.equal(cb.callCount, 0);
 
     // Ensure that correct tasks were removed
-    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    tasks = await getTasksUntil(new Date().getTime() + 100000000);
     assert.equal(tasks.length, 4);
 
-    dt.close()
+    await dt.close()
   });
 
   it('elegantly fails if key is updated during poll', async function() {
@@ -686,12 +717,12 @@ describe('poll', function() {
     assert.equal(cb.callCount, 0);
 
     // All tasks should be remaining since there was a redis transaction conflict
-    tasks = await getTasksUntil(dt, new Date().getTime() + 100000000);
+    tasks = await getTasksUntil(new Date().getTime() + 100000000);
 
     /// NOTE: This is 5 now because we added another during polling
     assert.equal(tasks.length, 5);
 
-    dt.close()
+    await dt.close()
   });
 
 });

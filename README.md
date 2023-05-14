@@ -95,7 +95,7 @@ try {
   this.add(5000, data);
 }
 
-// Don't forget to clean up later: `dt.stop()`
+// Don't forget to clean up later: `dt.stop()` or `dt.close()`, as applicable
 ```
 
 
@@ -113,21 +113,25 @@ The constructor takes a single object. Properties are as follows:
 | `callback`               | The function to call when tasks are due. <br><br>When a task is due or past-due, your callback method is called asynchronously, passing the `data` you provided when adding, the generated `taskId`, and the time (in ms) that the task was due.<br><br>The context of `this` is the `DelayedTasks` object.                                                                                                                           | Yes      |         |
 | `options.pollIntervalMs` | How often to poll redis for tasks due (in milliseconds). The shorter the interval, the sooner after being due a task will be processed, but the more load in redis. | No       | 1000    |
 
-<sup>1</sup> This module uses [`node-redis`](https://github.com/redis/node-redis) version 4 under the hood in legacy mode.
+<sup>1</sup> This module uses [`node-redis`](https://github.com/redis/node-redis) version 4 under the hood in legacy mode. If you provide your own client, you're responsible for connecting, disconnecting, and creating an error handler.
 
 ### Connect
 
-Before doing anything, call `await dt.connect()` to connect to redis.
+If you provided an object with options for connecting to redis, you must call `await dt.connect()` to connect to redis before doing anything else. If you've provided an existing, connected redis client, this is not necessary.
 
 ### start / stop polling
 
-To begin polling for tasks, call `dt.start()`. Call `dt.stop()` to stop future polling.
+To begin polling for tasks, call `dt.start()`. This returns a boolean with the status of starting. If `false`, it's because the redis client hasn't been connected yet. If this was a self-supplied client, call `await client.connect()`. Otherwise, call `await dt.connect()` to create the connection.
+
+Call `dt.stop()` to stop future polling.
 
 ### close()
 
-Calling `dt.close()` will stop polling and close the redis client being used.
+Calling `await dt.close()` will stop polling. If a new redis client was created for the object instance (that is, it was passed an object of configuration details), that redis client will be closed, too (using `disconnect()` to abort pending requests). If you passed an existing redis client to the constructor, it will be left open and you'll have to close it yourself when you're finished with it.
 
-**CAUTION:** If you passed your own redis client in the constructor, that client will be closed with this command. If you just want to stop polling, but leave the connection open, call `dt.stop()` instead.
+This returns a promise that resolves when the client connection is confirmed closed.
+
+If you just want to stop polling, but leave the connection open, call `dt.stop()` instead.
 
 ### add(_delayMs_, _data_)
 
@@ -151,7 +155,7 @@ To force a poll outside of the poll interval, call `dt.poll()`. This should be u
 
 ## Testing
 
-Start a local redis server on port 6379. You can run `docker-compose up` to launch one from this repo. Once redis is running, run `npm test` or `npm coverage`.
+The test suite requires a local redis server on port 6379. You can run `docker-compose up` to launch one from this repo. Once redis is running, run `npm test` or `npm coverage`.
 
 ## Notes
 
