@@ -185,5 +185,7 @@ catch everything, including redis errors.
 
 * Better handling of watch conflicts in `dt.poll`. Right now it just quits, but if this happens a lot, nothing would end up getting processed.
 
+* Find a redis mock that works with `node-redis` v4 and later versions of redis server.
+
 ## License
 MIT License
