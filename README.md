@@ -79,6 +79,9 @@ const dt = new DelayedTasks({
   }
 });
 
+// Connect redis
+await dt.connect()
+
 // Start polling
 dt.start();
 
